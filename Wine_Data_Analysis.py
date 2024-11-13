@@ -53,4 +53,16 @@ rating_data = rating_data.iloc[:, :-1]
 #     print("Differences found:")
 #     print(diff)
 
+# %% Reading in large wine data set
+
+wine_data = pd.read_csv('WineDataset.csv')
+
+# %% Finding who brings the best wine
+
+average_rating_provider = rating_data.groupby('Provider')['Average'].mean().sort_values(ascending=False)
+
+print('Average ratings for the wine brought by each person:')
+for provider, average_rating in average_rating_provider.items():
+    print(f'{provider}: {average_rating:.2f}')
+
 # %%
