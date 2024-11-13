@@ -7,6 +7,7 @@ Chase Johnson
 # %%
 import gspread
 import pandas as pd
+import numpy as np
 from google.oauth2.service_account import Credentials
 
 # %% Importing wine rating from google sheet
@@ -26,5 +27,30 @@ worksheet = spreadsheet.worksheet("Wine Stats")
 
 data = worksheet.get_all_records(head=2)
 
-df = pd.DataFrame(data)
+rating_data = pd.DataFrame(data)
+
+rating_data.replace("", np.nan, inplace=True)
+
+rating_data = rating_data.iloc[:, :-1]
+
+
+# %% Importing wine rating data from a downloaded spreadsheet instead
+
+# rating_data = pd.read_excel('Wine Master Sheet.xlsx', skiprows=1)
+
+# rating_data = rating_data.iloc[:, :-1]
+
+# # Fixes a problem where a 0.5 was rounding down, makes it so it matches data from google sheet
+# rating_data['Average'] = np.round(rating_data['Average'] + 1e-9, 2)
+
+# %% Checking if the methods of bringing in data work exactly the same
+
+# diff = rating_data.compare(rating_data2)
+
+# if diff.empty:
+#     print("The DataFrames are identical.")
+# else:
+#     print("Differences found:")
+#     print(diff)
+
 # %%
