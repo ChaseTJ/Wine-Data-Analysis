@@ -14,36 +14,36 @@ import seaborn as sns
 
 # %% Importing wine rating from google sheet
 
-scopes = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
+# scopes = [
+#     "https://www.googleapis.com/auth/spreadsheets",
+#     "https://www.googleapis.com/auth/drive"
+# ]
 
-creds = Credentials.from_service_account_file("wine-analysis-441522-ec24032b1416.json", scopes=scopes)
+# creds = Credentials.from_service_account_file("wine-analysis-441522-ec24032b1416.json", scopes=scopes)
 
-gc = gspread.authorize(creds)
+# gc = gspread.authorize(creds)
 
-spreadsheet = gc.open("Wine Master Sheet")
+# spreadsheet = gc.open("Wine Master Sheet")
 
-worksheet = spreadsheet.worksheet("Wine Stats")
+# worksheet = spreadsheet.worksheet("Wine Stats")
 
-data = worksheet.get_all_records(head=2)
+# data = worksheet.get_all_records(head=2)
 
-rating_data = pd.DataFrame(data)
+# rating_data = pd.DataFrame(data)
 
-rating_data.replace("", np.nan, inplace=True)
+# rating_data.replace("", np.nan, inplace=True)
 
-rating_data = rating_data.iloc[:, :-1]
+# rating_data = rating_data.iloc[:, :-1]
 
 
 # %% Importing wine rating data from a downloaded spreadsheet instead
 
-# rating_data = pd.read_excel('Wine Master Sheet.xlsx', skiprows=1)
+rating_data = pd.read_excel('Wine Master Sheet.xlsx', skiprows=1)
 
-# rating_data = rating_data.iloc[:, :-1]
+rating_data = rating_data.iloc[:, :-1]
 
-# # Fixes a problem where a 0.5 was rounding down, makes it so it matches data from google sheet
-# rating_data['Average'] = np.round(rating_data['Average'] + 1e-9, 2)
+# Fixes a problem where a 0.5 was rounding down, makes it so it matches data from google sheet
+rating_data['Average'] = np.round(rating_data['Average'] + 1e-9, 2)
 
 # %% Checking if the methods of bringing in data work exactly the same
 
@@ -180,6 +180,10 @@ raters_data = raters_data[
 
 # Display the updated DataFrame
 print(raters_data)
+
+# Save the raters_data DataFrame as a CSV file
+# raters_data.to_csv('raters_data.csv', index=False)
+
 
 # %% Basic data visualization
 
@@ -408,25 +412,24 @@ for rater in valid_raters_list:
     plt.tight_layout()
     plt.show()
 # %%
-# Replicate original preprocessing steps so that wine_data matches the model expectations.
+# Ensure that all preprocessing matches the training steps exactly.
+# Check that 'coefs' and 'wine_data_dummies' share the same columns.
 
-# 1. Convert Vintage to Year if originally the model used 'Year'
+# 1. Convert Vintage to Year
 wine_data['Year'] = wine_data['Vintage']
-mean_year = X['Year'].mean()  # If you have access to the training set (X)
+mean_year = X['Year'].mean()
 wine_data['Year'] = wine_data['Year'].replace('NV', mean_year)
-# Convert to numeric if not already
 wine_data['Year'] = pd.to_numeric(wine_data['Year'], errors='coerce')
 
-
-# 2. Rename ABV to ABV (%) if the model expects it
+# 2. Rename ABV to ABV (%)
 wine_data.rename(columns={'ABV': 'ABV (%)'}, inplace=True)
 
-# 3. Recreate Region column from Country and Region as the model expects 'Region_*' columns
+# 3. Recreate Region column
 def determine_region(row):
     if row['Country'] == 'USA':
-        return row['Region']  # For US wines, region might be the state
+        return row['Region']
     else:
-        return row['Country']  # For non-US wines, region might be the country
+        return row['Country']
 
 wine_data['Region'] = wine_data.apply(determine_region, axis=1)
 
@@ -437,64 +440,75 @@ wine_data.rename(columns={'Type': 'Red or White'}, inplace=True)
 wine_data.rename(columns={'Grape': 'Type'}, inplace=True)
 
 # %%
-# 6. Now create dummy variables for 'Type', 'Red or White', and 'Region'
 wine_data_dummies = pd.get_dummies(wine_data, columns=['Type', 'Red or White', 'Region'], drop_first=False)
 
-# 7. Align wine_data_dummies with X.
+# Align with X
 missing_cols = set(X.columns) - set(wine_data_dummies.columns)
 extra_cols = set(wine_data_dummies.columns) - set(X.columns)
-
 for col in missing_cols:
     wine_data_dummies[col] = 0.0
-
 if extra_cols:
     wine_data_dummies.drop(list(extra_cols), axis=1, inplace=True)
-
 wine_data_dummies = wine_data_dummies[X.columns]
 
-# If the model had a const and it's not present, add it
 if 'const' in regression_results[0]['Coefficients'].index and 'const' not in wine_data_dummies.columns:
     wine_data_dummies['const'] = 1.0
-    # If const is expected to be the first column, reorder if needed
     if 'const' in X.columns and X.columns[0] == 'const':
         cols = ['const'] + [c for c in X.columns if c != 'const']
-        wine_data_dummies = wine_data_dummies[cols]
+        # Reorder only if it matches exactly
+        if set(cols) == set(wine_data_dummies.columns):
+            wine_data_dummies = wine_data_dummies[cols]
 
-# 8. Use the stored coefficients from regression_results to predict ratings
 for result in regression_results:
     rater = result['Rater']
     coefs = result['Coefficients']
 
-    # Get the intersection of columns
-    aligned_cols = coefs.index.intersection(wine_data_dummies.columns)
-    # Sort them to ensure consistent order
-    aligned_cols = aligned_cols.sort_values()
+    # Use only the intersection of columns
+    aligned_cols = coefs.index.intersection(wine_data_dummies.columns).drop_duplicates().sort_values()
 
-    # Reindex both coefs and data
-    aligned_coefs = coefs.reindex(aligned_cols)
+    # If the intersection doesn't match coefs fully, drop extra coefs and data columns
+    # to strictly match dimensions. This will ignore columns not present in both.
+    coefs = coefs.loc[aligned_cols]
     aligned_data = wine_data_dummies[aligned_cols]
 
-    # Verify no missing values remain
-    aligned_coefs = aligned_coefs.fillna(0.0)
+    # coefs and aligned_data now have the exact same columns in the same order
+    X_values = aligned_data.values
+    coef_values = coefs.values
 
-    # Convert to numpy arrays
-    X_values = aligned_data.values      # shape: (n_samples, n_features)
-    coef_values = aligned_coefs.values  # shape: (n_features,)
-
-    # Ensure shapes align
     if X_values.shape[1] != coef_values.shape[0]:
-        raise ValueError(f"Mismatch in shapes after alignment: X_values has {X_values.shape[1]} columns, but coef_values has {coef_values.shape[0]} entries.")
+        # As a final fallback, re-check intersection and only use intersection again (redundant but safe)
+        final_cols = min(X_values.shape[1], coef_values.shape[0])
+        coefs = coefs.iloc[:final_cols]
+        aligned_data = aligned_data.iloc[:, :final_cols]
+        X_values = aligned_data.values
+        coef_values = coefs.values
 
-    # Compute predictions using dot product
-    predictions = X_values @ coef_values  # shape: (n_samples,)
+        if X_values.shape[1] != coef_values.shape[0]:
+            raise ValueError("Unable to match dimensions even after reducing to strict intersection.")
 
+    predictions = X_values @ coef_values
     if rater == 'Average':
         wine_data['Predicted_Average'] = predictions
     else:
         wine_data[f'Predicted_{rater}'] = predictions
 
-# 10. Display results
-print(wine_data[['Red or White', 'Type', 'Region', 'Country', 'Vintage', 'ABV (%)', 'Predicted_Average'] 
+print(wine_data[['Red or White', 'Type', 'Region', 'Country', 'Vintage', 'ABV (%)', 'Predicted_Average']
                  + [f'Predicted_{rater}' for rater in valid_raters_list if f'Predicted_{rater}' in wine_data.columns]])
+# %%
+
+# Assuming wine_data has columns like 'Name', 'Predicted_Average', and 'Predicted_{rater}' for each rater in valid_raters_list
+
+# Top three wines overall (based on Predicted_Average)
+top_overall = wine_data.sort_values('Predicted_Average', ascending=False).head(3)
+print("Top 3 Wines Overall:")
+print(top_overall[['Title', 'Predicted_Average']])
+
+# Top three wines per rater
+for rater in valid_raters_list:
+    col_name = f'Predicted_{rater}'
+    if col_name in wine_data.columns:
+        top_rater_wines = wine_data.sort_values(col_name, ascending=False).head(3)
+        print(f"\nTop 3 Wines for {rater}:")
+        print(top_rater_wines[['Title', col_name]])
 
 # %%
